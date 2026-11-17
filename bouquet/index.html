@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#000000" />
+  <title>Bloom Bouquet — last 30 brews</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      height: 100svh;
+      height: 100dvh;
+      overflow: hidden;
+      position: fixed;
+      inset: 0;
+      overscroll-behavior: none;
+      background: #000;
+      color: #f0e6d8;
+      font: 13px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      -webkit-text-size-adjust: 100%;
+      touch-action: none;
+    }
+    canvas#bouquet-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+      z-index: 0;
+    }
+    #ui {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      padding: calc(10px + env(safe-area-inset-top, 0px))
+               calc(12px + env(safe-area-inset-right, 0px))
+               calc(10px + env(safe-area-inset-bottom, 0px))
+               calc(12px + env(safe-area-inset-left, 0px));
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    html[data-still] #ui { display: none; }
+    #hint {
+      pointer-events: none;
+      user-select: none;
+      color: #8a8074;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.8);
+      max-width: min(420px, 100%);
+    }
+    #panel {
+      pointer-events: auto;
+      touch-action: auto;
+      width: min(360px, 100%);
+      color: #f0e6d8;
+    }
+    #toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 8px;
+      padding: 8px 12px;
+      border: 1px solid rgba(232, 196, 150, 0.22);
+      border-radius: 999px;
+      background: rgba(18, 12, 8, 0.72);
+      color: #f0e6d8;
+      font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      touch-action: manipulation;
+    }
+    #panel.open #toggle { background: rgba(18, 12, 8, 0.86); }
+    #panel-body {
+      display: none;
+      border: 1px solid rgba(232, 196, 150, 0.16);
+      border-radius: 16px;
+      background: rgba(16, 11, 8, 0.82);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+      max-height: min(48dvh, 380px);
+    }
+    #panel.open #panel-body { display: block; }
+    #panel-scroll {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      padding: 12px 14px 14px;
+      max-height: min(48dvh, 380px);
+    }
+    .panel-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 2px;
+    }
+    .panel-head .title {
+      font-weight: 650;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+    }
+    #reset {
+      border: 0;
+      background: transparent;
+      color: #c48a5a;
+      font: 600 11px/1 ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      padding: 4px 0;
+      touch-action: manipulation;
+    }
+    #caption {
+      margin: 0 0 10px;
+      color: #9a8b7a;
+      font-size: 11px;
+    }
+    label.ctrl {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 12px;
+      align-items: center;
+      margin: 0 0 8px;
+      color: #f0e6d8;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    label.ctrl span {
+      color: #e0b48a;
+      font-variant-numeric: tabular-nums;
+      font-weight: 650;
+    }
+    input[type="range"] {
+      grid-column: 1 / -1;
+      width: 100%;
+      height: 28px;
+      margin: 0;
+      accent-color: #e07038;
+      touch-action: manipulation;
+    }
+  </style>
+  <script>
+    if (new URLSearchParams(location.search).has("still")) {
+      document.documentElement.dataset.still = "1";
+    }
+  </script>
+</head>
+<body>
+  <div id="ui">
+    <div id="panel" class="open">
+      <button type="button" id="toggle" aria-expanded="true" aria-controls="panel-body">Hide controls</button>
+      <div id="panel-body">
+        <div id="panel-scroll">
+          <div class="panel-head">
+            <div class="title">Bloom bouquet</div>
+            <button type="button" id="reset">Reset</button>
+          </div>
+          <p id="caption">Last 30 brews · 9–17 Nov 2026 HKT</p>
+          <label class="ctrl">Logs <span id="val-logs">30</span>
+            <input id="logs" type="range" min="1" max="30" step="1" value="30" />
+          </label>
+          <label class="ctrl">Stem height <span id="val-height">1.00</span>
+            <input id="height" type="range" min="0.6" max="1.6" step="0.02" value="1" />
+          </label>
+          <label class="ctrl">Stem softness <span id="val-soft">1.00</span>
+            <input id="soft" type="range" min="0.4" max="2.2" step="0.05" value="1" />
+          </label>
+          <label class="ctrl">Size <span id="val-size">1.00</span>
+            <input id="size" type="range" min="0.5" max="2.2" step="0.05" value="1" />
+          </label>
+        </div>
+      </div>
+    </div>
+    <div id="hint">Loading bouquet…</div>
+  </div>
+  <script src="vendor/app.js"></script>
+</body>
+</html>
