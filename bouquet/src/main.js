@@ -36,13 +36,11 @@ const LEAN_OUTER = 56 * Math.PI / 180;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 const BLOOM_LAYER = 1;
 
-// Dimmer, tighter Ethiopia atmos so the globe falls off to black in the distance.
-const ATMOS_RADIUS = 6.2;
-const ATMOS_OPACITY = 0.15;
-const ATMOS_Y = 0.7;
-const GROUND_SIZE = 7.2;
-const FOG_NEAR = 9.5;
-const FOG_FAR = 20;
+// Soft atmospheric shell so the set's top-bean hue glows behind the bouquet.
+const ATMOS_RADIUS = 9.5;
+const ATMOS_OPACITY = 0.30;
+const ATMOS_Y = 1.2;
+const GROUND_SIZE = 12;
 
 const DEFAULTS = {
   logs: 30,
@@ -190,7 +188,6 @@ async function __main() {
   const { w: vw0, h: vh0 } = viewportSize();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
-  scene.fog = new THREE.Fog(0x000000, FOG_NEAR, FOG_FAR);
 
   const camera = new THREE.PerspectiveCamera(36, vw0 / Math.max(1, vh0), 0.1, 80);
   camera.position.set(6.8, 2.35, 12.4);
@@ -298,22 +295,22 @@ async function __main() {
     composer.setSize(w, h);
   }
 
-  // Tighter, dimmer ground wash — Ethiopia hue, falling off quickly to the void.
+  // Soft ground wash under the bouquet — Ethiopia hue.
   const shadowCanvas = document.createElement("canvas");
   shadowCanvas.width = 256;
   shadowCanvas.height = 256;
   const sg = shadowCanvas.getContext("2d");
-  const grad = sg.createRadialGradient(128, 128, 8, 128, 128, 100);
+  const grad = sg.createRadialGradient(128, 128, 20, 128, 128, 124);
   const wr = Math.round(weekGlow.r * 255), wg_g = Math.round(weekGlow.g * 255), wb = Math.round(weekGlow.b * 255);
-  grad.addColorStop(0, "rgba(" + wr + "," + wg_g + "," + wb + ", 0.48)");
-  grad.addColorStop(0.30, "rgba(" + wr + "," + wg_g + "," + wb + ", 0.14)");
+  grad.addColorStop(0, "rgba(" + wr + "," + wg_g + "," + wb + ", 0.88)");
+  grad.addColorStop(0.38, "rgba(" + wr + "," + wg_g + "," + wb + ", 0.32)");
   grad.addColorStop(1, "rgba(0, 0, 0, 0)");
   sg.fillStyle = grad;
   sg.fillRect(0, 0, 256, 256);
   const shadowTex = new THREE.CanvasTexture(shadowCanvas);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
-    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, fog: true })
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -3.03;
@@ -327,8 +324,7 @@ async function __main() {
       opacity: ATMOS_OPACITY,
       side: THREE.BackSide,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      fog: true
+      blending: THREE.AdditiveBlending
     })
   );
   atmos.position.y = ATMOS_Y;
