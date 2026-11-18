@@ -688,22 +688,22 @@ async function __main() {
     const hold = new THREE.Group();
     hold.position.set(Math.sin(p.angle) * p.radius, p.y, Math.cos(p.angle) * p.radius);
     hold.rotation.y = p.angle;
-    flower.rotation.x = -Math.PI / 2 + p.lean;
     hold.add(flower);
     const aura = makeAura(p.hue, p.scale);
     hold.add(aura);
     bouquet.add(hold);
+    flower.userData.hold = hold;
+    flower.userData.aura = aura;
+    flower.userData.packLean = p.lean;
+    flower.userData.radius = p.radius;
+    flower.userData.yBase = p.yBase;
+    flower.userData.baseSag = p.sag;
+    flower.userData.hue = p.hue;
+    applyFlowerPose(flower);
     const stem = makeStem(BUNDLE, throatOf(flower), stemColor(p.hue), p.sag, params.stemSoftness);
     bouquet.add(stem);
     flower.userData.stem = stem;
     flower.userData.bundle = BUNDLE;
-    flower.userData.hold = hold;
-    flower.userData.aura = aura;
-    flower.userData.baseLean = p.lean;
-    flower.userData.baseHoldY = hold.position.y;
-    flower.userData.yBase = p.yBase;
-    flower.userData.baseSag = p.sag;
-    flower.userData.hue = p.hue;
     flowers.push(flower);
   }
 
@@ -713,20 +713,35 @@ async function __main() {
     for (const p of placements) addFlowerFromPlacement(p, textures);
   }
 
+  function softnessAmt() {
+    return Math.min(1, Math.max(0, (params.stemSoftness - 0.4) / 1.8));
+  }
+
+  function applyFlowerPose(flower) {
+    const hold = flower.userData.hold;
+    const u = softnessAmt();
+    const radius = flower.userData.radius || 0;
+    const uprightY = MOUTH_Y + (flower.userData.yBase - MOUTH_Y) * params.stemHeight;
+    const span = Math.max(0.4, uprightY - MOUTH_Y);
+    const reach = Math.min(1, radius / 2.63);
+    // Outer heads drop more: longer stems, more leverage. Stiff stays at the packed height.
+    const drop = span * (0.10 + 0.22 * reach) * u;
+    const y = Math.max(MOUTH_Y + 0.85, uprightY - drop);
+    hold.position.y = y;
+    flower.userData.baseHoldY = y;
+    const nod = (8 * Math.PI / 180) * (0.4 + 0.6 * reach) * u;
+    flower.userData.baseLean = flower.userData.packLean + nod;
+    flower.rotation.x = -Math.PI / 2 + flower.userData.baseLean;
+    if (flower.userData.stem) flower.userData.stem.userData.softness = params.stemSoftness;
+  }
+
   function applyStemHeight() {
-    for (const flower of flowers) {
-      const hold = flower.userData.hold;
-      hold.position.y = MOUTH_Y + (flower.userData.yBase - MOUTH_Y) * params.stemHeight;
-      flower.userData.baseHoldY = hold.position.y;
-    }
+    for (const flower of flowers) applyFlowerPose(flower);
     recomputeStems();
   }
 
   function applyStemSoftness() {
-    for (const flower of flowers) {
-      const stem = flower.userData.stem;
-      if (stem) stem.userData.softness = params.stemSoftness;
-    }
+    for (const flower of flowers) applyFlowerPose(flower);
     recomputeStems();
   }
 
