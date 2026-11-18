@@ -511,21 +511,25 @@ async function __main() {
     const pts = [];
     const n = 16;
     const soft = Math.max(0.15, softness);
-    const sagUse = sag * soft;
-    const drape = Math.max(0, soft - 1);
+    // 0 at slider min (stiff), 1 at slider max (soft).
+    const u = Math.min(1, Math.max(0, (soft - 0.4) / 1.8));
+    // Stiff keeps today's tight-at-the-mug, nearly-straight rods
+    // (mid-radius ≈ 0.31 of the span). Soft stays in the bundle longer,
+    // then curves outward toward the heads — never a mid-stem belly.
+    const radialPower = 1.68 + 1.15 * u;
+    // Soft stems rise a little more vertically, so the last stretch
+    // travels outward (and slightly down at full soft) instead of sagging.
+    const yLift = (0.20 + 0.18 * (sag || 0.3)) * u;
     const CLEAR_Y = -1.36;
     const CLEAR_R = 0.82;
     for (let i = 0; i <= n; i++) {
       const tt = i / n;
-      const ease = tt * tt * (1.5 - 0.5 * tt);
-      // Default softness: the original mild sine sag. Higher softness adds a
-      // heavier mid-to-late downward drape so stems curl toward the ground.
-      const sagShape = Math.sin(Math.PI * tt) * (1 - 0.32 * drape)
-        + (4 * tt * tt * (1 - tt)) * drape;
+      const radialT = Math.pow(tt, radialPower);
+      const yT = tt + yLift * Math.sin(Math.PI * tt);
       const p = new THREE.Vector3(
-        from.x + (to.x - from.x) * ease,
-        from.y + (to.y - from.y) * tt - sagUse * sagShape,
-        from.z + (to.z - from.z) * ease
+        from.x + (to.x - from.x) * radialT,
+        from.y + (to.y - from.y) * yT,
+        from.z + (to.z - from.z) * radialT
       );
       const rad = Math.hypot(p.x, p.z);
       if (tt > 0.02 && tt < 0.95 && rad < CLEAR_R + 0.22) {
