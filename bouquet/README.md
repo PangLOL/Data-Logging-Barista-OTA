@@ -22,7 +22,7 @@ Open on a phone over the same network, or use a tunnel. The page is locked to th
 
 - **Logs** — how many of the latest shots to show (1–30, default 30)
 - **Stem height** — how tall the heads sit above the mug (0.60–1.60×, default 1.00)
-- **Stem softness** — how much stems stay gathered then curve outward toward the heads (0.40–2.20, default 1.00). Stiff is a tight, straight bundle; soft is not a mid-stem bow.
+- **Stem softness** — how much stems stay gathered then curve outward, and how far gravity lowers the heads (0.40–2.20, default 1.00). Stiff is a tight, straight bundle at packed height; soft is not a mid-stem bow.
 - **Size** — exaggeration of dose-based head scale (0.50–2.20, default 1.00)
 
 Values are kept in the URL hash, so a look can be shared. `?still=1` paints one frame and hides the panel (for screenshots).
