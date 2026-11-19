@@ -14,10 +14,9 @@ const RADIAL_SEG = 28;
 const RELAX_ITERS = 2;
 const RELAX_BLEND = 0.5;
 
-// Dial HSV hue is 0–255 (0 = red). Glow uses the highest-ranking bean
-// in this 30-shot set: Ethiopia Yirgacheffe Aricha, all four shots 5★, hue 16.
+// Dial HSV hue is 0–255 (0 = red). Glow uses Ethiopia Yirgacheffe Aricha, hue 16.
 const WEEK_TOP_HUE = 16;
-const DATE_RANGE = "9–17 Nov 2026 HKT";
+const DATE_RANGE = "1–19 Nov 2026 HKT";
 const MOUTH_Y = -1.42;
 const BUNDLE = new THREE.Vector3(0, -1.58, 0);
 
@@ -43,14 +42,14 @@ const ATMOS_Y = 1.2;
 const GROUND_SIZE = 12;
 
 const DEFAULTS = {
-  logs: 30,
+  logs: 60,
   stemHeight: 1,
   stemSoftness: 1,
   sizeExag: 1
 };
 
 const LIMITS = {
-  logs: [1, 30],
+  logs: [1, 60],
   stemHeight: [0.6, 1.6],
   stemSoftness: [0.4, 2.2],
   sizeExag: [0.5, 2.2]
@@ -85,6 +84,220 @@ function stemColor(hue) {
   col.lerp(new THREE.Color(0x4a2c14), 0.55);
   col.multiplyScalar(0.55);
   return col;
+}
+
+// Modifier hues are CSS HSL degrees (the hue of the named color).
+// HE BASKET is purple, FROZEN BALL is cyan, SLOW FEED is red.
+// Bag hues stay on the dial scale above; the petal art is already that bean color.
+const MODIFIER_HUES = {
+  "HE BASKET": 300,
+  "FROZEN BALL": 180,
+  "SLOW FEED": 0
+};
+
+const MODIFIER_ALIASES = {
+  "he basket": "HE BASKET",
+  "frozen ball": "FROZEN BALL",
+  "frozen ss ball": "FROZEN BALL",
+  "slow feed": "SLOW FEED"
+};
+
+function modifierKey(raw) {
+  return String(raw == null ? "" : raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function canonicalModifier(raw) {
+  const key = modifierKey(raw);
+  if (!key || key === "none" || key === "null" || key === "n/a") return "";
+  if (MODIFIER_ALIASES[key]) return MODIFIER_ALIASES[key];
+  return key.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+}
+
+function modifierHue(label) {
+  if (Object.prototype.hasOwnProperty.call(MODIFIER_HUES, label)) return MODIFIER_HUES[label];
+  let h = 0;
+  const key = modifierKey(label);
+  for (let i = 0; i < key.length; i++) h = (h * 33 + key.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+// One label, or several separated by comma, slash, plus, or semicolon.
+// "none" and blank contribute no wedge. At most four wedges (vec4 hues).
+function parseModifiers(raw) {
+  if (Array.isArray(raw)) {
+    const out = [];
+    for (const item of raw) {
+      for (const label of parseModifiers(item)) {
+        if (!out.includes(label)) out.push(label);
+      }
+    }
+    return out.slice(0, 4);
+  }
+  const text = String(raw == null ? "" : raw).trim();
+  if (!text) return [];
+  const parts = text.split(/\s*(?:,|;|\+|\/|\|)\s*/);
+  const out = [];
+  for (const part of parts) {
+    const label = canonicalModifier(part);
+    if (!label || out.includes(label)) continue;
+    out.push(label);
+  }
+  return out.slice(0, 4);
+}
+
+// Radial bean→modifier diffusion, with equal wedges when a brew has
+// more than one modifier. Slice edges use a short angular feather.
+const RIM_DYE_GLSL = `
+uniform float uDyeCount;
+uniform vec4 uDyeHues;
+
+vec3 bouquetEncodeSRGB(vec3 c) {
+  c = max(c, vec3(0.0));
+  vec3 lo = c * 12.92;
+  vec3 hi = pow(c, vec3(0.41666)) * 1.055 - vec3(0.055);
+  return mix(hi, lo, step(c, vec3(0.0031308)));
+}
+
+vec3 bouquetDecodeSRGB(vec3 c) {
+  c = max(c, vec3(0.0));
+  vec3 lo = c * 0.0773993808;
+  vec3 hi = pow((c + vec3(0.055)) / vec3(1.055), vec3(2.4));
+  return mix(hi, lo, step(c, vec3(0.04045)));
+}
+
+float bouquetHueToRgb(float p, float q, float t) {
+  if (t < 0.0) t += 1.0;
+  if (t > 1.0) t -= 1.0;
+  if (t < 0.1666667) return p + (q - p) * 6.0 * t;
+  if (t < 0.5) return q;
+  if (t < 0.6666667) return p + (q - p) * (0.6666667 - t) * 6.0;
+  return p;
+}
+
+vec3 bouquetHslToRgb(vec3 hsl) {
+  float h = hsl.x;
+  float s = clamp(hsl.y, 0.0, 1.0);
+  float l = clamp(hsl.z, 0.0, 1.0);
+  if (s < 0.0001) return vec3(l);
+  float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+  float p = 2.0 * l - q;
+  return vec3(
+    bouquetHueToRgb(p, q, h + 0.3333333),
+    bouquetHueToRgb(p, q, h),
+    bouquetHueToRgb(p, q, h - 0.3333333)
+  );
+}
+
+vec3 bouquetRgbToHsl(vec3 c) {
+  float maxC = max(c.r, max(c.g, c.b));
+  float minC = min(c.r, min(c.g, c.b));
+  float l = (maxC + minC) * 0.5;
+  float d = maxC - minC;
+  if (d < 0.00001) return vec3(0.0, 0.0, l);
+  float s = l > 0.5 ? d / (2.0 - maxC - minC) : d / (maxC + minC);
+  float h;
+  if (maxC == c.r) {
+    h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+  } else if (maxC == c.g) {
+    h = (c.b - c.r) / d + 2.0;
+  } else {
+    h = (c.r - c.g) / d + 4.0;
+  }
+  return vec3(h / 6.0, s, l);
+}
+
+float bouquetMixHue(float aDeg, float bDeg, float t) {
+  float d = mod(bDeg - aDeg + 540.0, 360.0) - 180.0;
+  return mod(aDeg + d * t + 360.0, 360.0);
+}
+
+float bouquetHueAt(int idx, int n) {
+  float fk = mod(float(idx), float(n));
+  if (fk < 0.0) fk += float(n);
+  int k = int(floor(fk + 0.0001));
+  if (k >= n) k = 0;
+  if (k == 0) return uDyeHues.x;
+  if (k == 1) return uDyeHues.y;
+  if (k == 2) return uDyeHues.z;
+  return uDyeHues.w;
+}
+
+float bouquetModifierHue(vec2 uv) {
+  int n = int(uDyeCount + 0.5);
+  if (n <= 1) return uDyeHues.x;
+  float ang = atan(uv.y - 0.5, uv.x - 0.5);
+  float ang01 = fract(ang * RECIPROCAL_PI2 + 0.5);
+  float pos = ang01 * float(n);
+  int i0 = int(floor(pos));
+  float f = fract(pos);
+  float slice = 1.0 / float(n);
+  float featherTurn = min(0.05, slice * 0.35);
+  float fw = featherTurn / slice;
+  float h0 = bouquetHueAt(i0, n);
+  if (f < fw) {
+    float t = smoothstep(0.0, fw, f);
+    float hPrev = bouquetHueAt(i0 - 1, n);
+    return bouquetMixHue(hPrev, h0, mix(0.5, 1.0, t));
+  }
+  if (f > 1.0 - fw) {
+    float t = smoothstep(1.0 - fw, 1.0, f);
+    float hNext = bouquetHueAt(i0 + 1, n);
+    return bouquetMixHue(h0, hNext, t * 0.5);
+  }
+  return h0;
+}
+
+float bouquetRadial(vec2 uv) {
+  float d = length(uv - vec2(0.5));
+  float r = clamp((d - 0.05) / 0.45, 0.0, 1.0);
+  return smoothstep(0.30, 0.98, r);
+}
+
+vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
+  if (uDyeCount < 0.5) return linearRgb;
+  float amount = bouquetRadial(uv);
+  if (amount <= 0.0) return linearRgb;
+  float peak = max(linearRgb.r, max(linearRgb.g, linearRgb.b));
+  if (peak < 0.0001) return linearRgb;
+  vec3 srgb = bouquetEncodeSRGB(linearRgb / peak);
+  vec3 hsl = bouquetRgbToHsl(srgb);
+  float dyedHue = bouquetMixHue(hsl.x * 360.0, bouquetModifierHue(uv), amount);
+  float sat = mix(hsl.y, max(hsl.y, 0.82), amount);
+  vec3 shifted = bouquetDecodeSRGB(bouquetHslToRgb(vec3(dyedHue / 360.0, sat, hsl.z)));
+  float newPeak = max(shifted.r, max(shifted.g, shifted.b));
+  return shifted * (peak / max(newPeak, 0.0001));
+}
+`;
+
+function onBeforeCompileRim(shader) {
+  if (!shader.fragmentShader || shader.fragmentShader.indexOf("#include <color_fragment>") === -1) return;
+  shader.uniforms.uDyeCount = { value: this.userData.dyeCount || 0 };
+  shader.uniforms.uDyeHues = { value: this.userData.dyeHues };
+  shader.fragmentShader = shader.fragmentShader
+    .replace("#include <common>", "#include <common>\n" + RIM_DYE_GLSL)
+    .replace(
+      "#include <color_fragment>",
+      "#include <color_fragment>\n\tdiffuseColor.rgb = bouquetRimDye(diffuseColor.rgb, vMapUv);"
+    )
+    .replace(
+      "#include <emissivemap_fragment>",
+      "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance = bouquetRimDye(totalEmissiveRadiance, vMapUv);"
+    );
+}
+
+function attachRimDye(mat, labels) {
+  const hues = [0, 0, 0, 0];
+  const used = (labels || []).slice(0, 4);
+  for (let i = 0; i < used.length; i++) hues[i] = modifierHue(used[i]);
+  mat.userData.dyeCount = used.length;
+  mat.userData.dyeLabels = used;
+  mat.userData.dyeHues = new THREE.Vector4(hues[0], hues[1], hues[2], hues[3]);
+  mat.onBeforeCompile = onBeforeCompileRim;
+  mat.customProgramCacheKey = () => "bouquet-rim-dye-v1";
 }
 
 function hermite(y0, y1, m0, m1, t) {
@@ -456,6 +669,7 @@ async function __main() {
       metalness: 0.02,
       depthWrite: true
     });
+    attachRimDye(mat, opts.modifiers || []);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.layers.enable(BLOOM_LAYER);
     mesh.userData = {
@@ -649,7 +863,9 @@ async function __main() {
       const phase = i * 0.47;
       return {
         key: s.id, hue: s.hue, angle, radius, y, yBase, lean, scale, pull, phase,
-        dose: s.dose, yieldG: s.yieldG, grind: s.grind, openness: open, sag
+        dose: s.dose, yieldG: s.yieldG, grind: s.grind, openness: open, sag,
+        modifiers: parseModifiers(s.modifier),
+        featured: s.featured === true
       };
     });
   }
@@ -682,7 +898,8 @@ async function __main() {
       pull: p.pull,
       phase: p.phase,
       fillShare: p.dose / Math.max(p.yieldG, 0.01),
-      openness: p.openness
+      openness: p.openness,
+      modifiers: p.modifiers
     });
     flower.scale.setScalar(p.scale);
     const hold = new THREE.Group();
@@ -699,6 +916,8 @@ async function __main() {
     flower.userData.yBase = p.yBase;
     flower.userData.baseSag = p.sag;
     flower.userData.hue = p.hue;
+    flower.userData.modifiers = p.modifiers;
+    flower.userData.featured = p.featured;
     applyFlowerPose(flower);
     const stem = makeStem(BUNDLE, throatOf(flower), stemColor(p.hue), p.sag, params.stemSoftness);
     bouquet.add(stem);
@@ -862,18 +1081,36 @@ async function __main() {
   }
 
   function captionText() {
-    const n = clamp(Math.round(params.logs), 1, allShots.length || 30);
-    const total = allShots.length || 30;
+    const n = clamp(Math.round(params.logs), 1, allShots.length || 60);
+    const total = allShots.length || 60;
     if (n >= total) return "Last " + total + " brews · " + DATE_RANGE;
     return "Latest " + n + " of " + total + " brews · " + DATE_RANGE;
+  }
+
+  function dyeCountText(shots) {
+    const order = ["HE BASKET", "FROZEN BALL", "SLOW FEED"];
+    const counts = new Map();
+    for (const s of shots) {
+      for (const label of parseModifiers(s.modifier)) {
+        counts.set(label, (counts.get(label) || 0) + 1);
+      }
+    }
+    const labels = order.filter((label) => counts.has(label));
+    for (const label of counts.keys()) {
+      if (!labels.includes(label)) labels.push(label);
+    }
+    if (!labels.length) return "No rim dye in this view";
+    return labels.map((label) => label + " × " + counts.get(label)).join(" · ");
   }
 
   function updateCaption() {
     const el = document.getElementById("caption");
     const hint = document.getElementById("hint");
+    const counts = document.getElementById("dye-counts");
     const text = captionText();
     if (el) el.textContent = text;
     if (hint) hint.textContent = text + " · drag to look around";
+    if (counts) counts.textContent = dyeCountText(visibleShots());
   }
 
   let hashTimer = 0;
