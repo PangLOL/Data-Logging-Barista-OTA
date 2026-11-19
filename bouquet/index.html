@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#000000" />
-  <title>Bloom Bouquet — November brews</title>
+  <title>Bloom Bouquet — 11:55 HE BASKET</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body {
@@ -59,7 +59,7 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       text-shadow: 0 1px 8px rgba(0,0,0,0.8);
-      max-width: min(420px, 100%);
+      max-width: min(720px, 100%);
     }
     #panel {
       pointer-events: auto;
@@ -132,6 +132,7 @@
       color: #9a8b7a;
       font-size: 11px;
     }
+    #caption span { display: block; }
     #legend, #dye-counts {
       margin: 0 0 8px;
       color: #c4b4a4;
@@ -178,12 +179,9 @@
             <div class="title">Bloom bouquet</div>
             <button type="button" id="reset">Reset</button>
           </div>
-          <p id="caption">Last 60 brews · 1–19 Nov 2026 HKT</p>
+          <p id="caption"><span id="caption-when">19 Nov 2026, 11:55 AM HKT</span><span id="caption-brew">Guatemala Antigua La Flor · HE BASKET</span></p>
           <p id="legend">HE BASKET purple · FROZEN BALL cyan · SLOW FEED red</p>
-          <p id="dye-counts"></p>
-          <label class="ctrl">Logs <span id="val-logs">60</span>
-            <input id="logs" type="range" min="1" max="60" step="1" value="60" />
-          </label>
+          <p id="dye-counts">Rim dye · HE BASKET purple</p>
           <label class="ctrl">Stem height <span id="val-height">1.00</span>
             <input id="height" type="range" min="0.6" max="1.6" step="0.02" value="1" />
           </label>

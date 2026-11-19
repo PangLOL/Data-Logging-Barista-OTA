@@ -16,9 +16,16 @@ const RELAX_BLEND = 0.5;
 
 // Dial HSV hue is 0–255 (0 = red). Glow uses Ethiopia Yirgacheffe Aricha, hue 16.
 const WEEK_TOP_HUE = 16;
-const DATE_RANGE = "1–19 Nov 2026 HKT";
 const MOUTH_Y = -1.42;
 const BUNDLE = new THREE.Vector3(0, -1.58, 0);
+
+// One stem, framed with the mug. Closer than the old 60-head bouquet camera.
+const CAM_POS = new THREE.Vector3(2.85, 1.42, 6.05);
+const CAM_TARGET = new THREE.Vector3(0, -0.12, 0);
+const SOLO_ANGLE = -0.11;
+const SOLO_RADIUS = 0.42;
+const SOLO_YBASE = 0.92;
+const SOLO_LEAN = 22 * Math.PI / 180;
 
 const DOSE_MIN = 14;
 const DOSE_REF = 18;
@@ -42,14 +49,12 @@ const ATMOS_Y = 1.2;
 const GROUND_SIZE = 12;
 
 const DEFAULTS = {
-  logs: 60,
   stemHeight: 1,
   stemSoftness: 1,
   sizeExag: 1
 };
 
 const LIMITS = {
-  logs: [1, 60],
   stemHeight: [0.6, 1.6],
   stemSoftness: [0.4, 2.2],
   sizeExag: [0.5, 2.2]
@@ -147,6 +152,29 @@ function parseModifiers(raw) {
     out.push(label);
   }
   return out.slice(0, 4);
+}
+
+// The published view is one flower: 19 Nov 2026, 11:55 AM HKT,
+// Guatemala Antigua La Flor, bag 8, hue 143, modifier HE BASKET.
+// The 8:58 AM brew is modifier none and must not be shown.
+function isHebasketPreview(shot) {
+  if (!shot || typeof shot !== "object") return false;
+  const name = String(shot.name || "").toUpperCase();
+  const when = String(shot.when || "");
+  const iso = String(shot.iso || "");
+  const at1155 = when.includes("11:55")
+    || iso.startsWith("2026-11-19T11:55")
+    || iso.startsWith("2026-11-19T03:55");
+  return Number(shot.bag_id) === 8
+    && Number(shot.hue) === 143
+    && name.includes("ANTIGUA LA FLOR")
+    && at1155
+    && canonicalModifier(shot.modifier) === "HE BASKET";
+}
+
+function selectPreviewShot(shots) {
+  const matches = (Array.isArray(shots) ? shots : []).filter(isHebasketPreview);
+  return matches.length ? matches[matches.length - 1] : null;
 }
 
 // Radial bean→modifier diffusion, with equal wedges when a brew has
@@ -373,7 +401,6 @@ function readParams() {
   };
   return {
     still: q.has("still"),
-    logs: Math.round(num("logs", DEFAULTS.logs, LIMITS.logs[0], LIMITS.logs[1])),
     stemHeight: num("height", DEFAULTS.stemHeight, LIMITS.stemHeight[0], LIMITS.stemHeight[1]),
     stemSoftness: num("soft", DEFAULTS.stemSoftness, LIMITS.stemSoftness[0], LIMITS.stemSoftness[1]),
     sizeExag: num("size", DEFAULTS.sizeExag, LIMITS.sizeExag[0], LIMITS.sizeExag[1])
@@ -390,7 +417,6 @@ async function __main() {
 
   const start = readParams();
   const params = {
-    logs: start.logs,
     stemHeight: start.stemHeight,
     stemSoftness: start.stemSoftness,
     sizeExag: start.sizeExag
@@ -403,7 +429,7 @@ async function __main() {
   scene.background = new THREE.Color(0x000000);
 
   const camera = new THREE.PerspectiveCamera(36, vw0 / Math.max(1, vh0), 0.1, 80);
-  camera.position.set(6.8, 2.35, 12.4);
+  camera.position.copy(CAM_POS);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   const coarse = window.matchMedia("(max-width: 720px), (pointer: coarse)").matches;
@@ -419,9 +445,9 @@ async function __main() {
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
-  controls.target.set(0, 1.15, 0);
-  controls.minDistance = 4.5;
-  controls.maxDistance = 24;
+  controls.target.copy(CAM_TARGET);
+  controls.minDistance = 2.8;
+  controls.maxDistance = 16;
   controls.maxPolarAngle = Math.PI * 0.49;
 
   // Neutral fill on the bouquet so every petal keeps its own hue.
@@ -463,9 +489,9 @@ async function __main() {
   const renderSceneFinal = new RenderPass(scene, camera);
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(vw0, vh0),
-    1.1, // strength — a clear colored halo on every head
-    0.72, // radius
-    0.05  // threshold — low enough that blue and rust petals bloom too
+    0.48, // strength — halo stays colored so the dyed rim is still visible
+    0.42, // radius
+    0.18  // threshold — the bright rim blooms; the center keeps its bag hue
   );
   const bloomComposer = new EffectComposer(renderer);
   bloomComposer.renderToScreen = false;
@@ -823,7 +849,7 @@ async function __main() {
       map: auraTex,
       color: col,
       transparent: true,
-      opacity: 0.28,
+      opacity: 0.12,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -850,12 +876,20 @@ async function __main() {
   function computePlacements(shots) {
     const n = shots.length;
     return shots.map((s, i) => {
-      const t = (i + 0.5) / n;
-      const angle = i * GOLDEN;
-      const radius = 0.28 + 2.35 * Math.sqrt(t);
-      const yBase = 2.55 + 1.85 * (1 - Math.sqrt(t)) + (s.stars - 3.5) * 0.12 + 0.16 * Math.sin(i * 2.15 + 0.4);
+      // A single stem sits just off the mug's axis so the stalk reads,
+      // tipped toward the camera. The packed golden-angle bouquet would
+      // park one flower out at the rim of an empty bunch.
+      const solo = n === 1;
+      const t = solo ? 0 : (i + 0.5) / n;
+      const angle = solo ? SOLO_ANGLE : i * GOLDEN;
+      const radius = solo ? SOLO_RADIUS : 0.28 + 2.35 * Math.sqrt(t);
+      const yBase = solo
+        ? SOLO_YBASE
+        : 2.55 + 1.85 * (1 - Math.sqrt(t)) + (s.stars - 3.5) * 0.12 + 0.16 * Math.sin(i * 2.15 + 0.4);
       const y = MOUTH_Y + (yBase - MOUTH_Y) * params.stemHeight;
-      const lean = LEAN_INNER + (LEAN_OUTER - LEAN_INNER) * Math.min(1, radius / 2.63);
+      const lean = solo
+        ? SOLO_LEAN
+        : LEAN_INNER + (LEAN_OUTER - LEAN_INNER) * Math.min(1, radius / 2.63);
       const scale = sizedScale(s.dose, params.sizeExag);
       const open = grindOpenness(s.grind);
       const pull = (1.04 + 0.12 * Math.sin(i * 1.7 + 0.3)) * (1 - 0.94 * open);
@@ -928,7 +962,9 @@ async function __main() {
 
   function rebuildFlowers(shots, textures) {
     clearFlowers();
-    const placements = computePlacements(shots);
+    const only = (shots || []).filter(isHebasketPreview);
+    if (only.length !== 1) return;
+    const placements = computePlacements(only);
     for (const p of placements) addFlowerFromPlacement(p, textures);
   }
 
@@ -1076,15 +1112,13 @@ async function __main() {
   const textures = {};
 
   function visibleShots() {
-    const n = clamp(Math.round(params.logs), 1, allShots.length || 30);
-    return allShots.slice(-n);
+    return allShots.filter(isHebasketPreview);
   }
 
   function captionText() {
-    const n = clamp(Math.round(params.logs), 1, allShots.length || 60);
-    const total = allShots.length || 60;
-    if (n >= total) return "Last " + total + " brews · " + DATE_RANGE;
-    return "Latest " + n + " of " + total + " brews · " + DATE_RANGE;
+    const shot = visibleShots()[0];
+    const when = (shot && shot.when) || "19 Nov 2026, 11:55 AM HKT";
+    return { when, brew: "Guatemala Antigua La Flor · HE BASKET" };
   }
 
   function dyeCountText(shots) {
@@ -1100,6 +1134,9 @@ async function __main() {
       if (!labels.includes(label)) labels.push(label);
     }
     if (!labels.length) return "No rim dye in this view";
+    if (shots.length === 1 && labels.length === 1 && labels[0] === "HE BASKET") {
+      return "Rim dye · HE BASKET purple";
+    }
     return labels.map((label) => label + " × " + counts.get(label)).join(" · ");
   }
 
@@ -1108,8 +1145,12 @@ async function __main() {
     const hint = document.getElementById("hint");
     const counts = document.getElementById("dye-counts");
     const text = captionText();
-    if (el) el.textContent = text;
-    if (hint) hint.textContent = text + " · drag to look around";
+    const whenEl = document.getElementById("caption-when");
+    const brewEl = document.getElementById("caption-brew");
+    if (whenEl) whenEl.textContent = text.when;
+    if (brewEl) brewEl.textContent = text.brew;
+    if (el && !whenEl) el.textContent = text.when + " · " + text.brew;
+    if (hint) hint.textContent = text.brew + " · drag to look around";
     if (counts) counts.textContent = dyeCountText(visibleShots());
   }
 
@@ -1118,7 +1159,6 @@ async function __main() {
     clearTimeout(hashTimer);
     hashTimer = setTimeout(() => {
       const parts = [
-        "logs=" + Math.round(params.logs),
         "height=" + Number(params.stemHeight).toFixed(2),
         "soft=" + Number(params.stemSoftness).toFixed(2),
         "size=" + Number(params.sizeExag).toFixed(2)
@@ -1139,27 +1179,10 @@ async function __main() {
         label.textContent = digits == null ? String(Math.round(value)) : Number(value).toFixed(digits);
       }
     };
-    set("logs", params.logs);
     set("height", params.stemHeight, 2);
     set("soft", params.stemSoftness, 2);
     set("size", params.sizeExag, 2);
     updateCaption();
-  }
-
-  let logsTimer = 0;
-  function onLogsChange(n, immediate) {
-    params.logs = clamp(Math.round(n), LIMITS.logs[0], Math.min(LIMITS.logs[1], allShots.length || 30));
-    syncSlidersFromParams();
-    writeHash();
-    const run = () => rebuildFlowers(visibleShots(), textures);
-    if (immediate) {
-      clearTimeout(logsTimer);
-      run();
-      paint();
-      return;
-    }
-    clearTimeout(logsTimer);
-    logsTimer = setTimeout(() => { run(); paint(); }, 80);
   }
 
   function onHeightChange(v) {
@@ -1187,7 +1210,6 @@ async function __main() {
   }
 
   function resetParams() {
-    params.logs = DEFAULTS.logs;
     params.stemHeight = DEFAULTS.stemHeight;
     params.stemSoftness = DEFAULTS.stemSoftness;
     params.sizeExag = DEFAULTS.sizeExag;
@@ -1200,7 +1222,6 @@ async function __main() {
   function bindUi() {
     const panel = document.getElementById("panel");
     const toggle = document.getElementById("toggle");
-    const logs = document.getElementById("logs");
     const height = document.getElementById("height");
     const soft = document.getElementById("soft");
     const size = document.getElementById("size");
@@ -1212,7 +1233,6 @@ async function __main() {
       input.addEventListener("input", read);
       input.addEventListener("change", read);
     };
-    live(logs, (v) => onLogsChange(v, false), true);
     live(height, onHeightChange, false);
     live(soft, onSoftChange, false);
     live(size, onSizeChange, false);
@@ -1306,11 +1326,12 @@ async function __main() {
   try {
     const res = await fetch(shotsUrl());
     if (!res.ok) throw new Error("Could not load " + shotsUrl() + " (" + res.status + ")");
-    allShots = await res.json();
-    if (!Array.isArray(allShots) || !allShots.length) throw new Error("No shots in " + shotsUrl());
-    await Promise.all(allShots.map(async (s) => {
-      textures[s.id] = await loadTexture(textureUrlFor(s.id));
-    }));
+    const loaded = await res.json();
+    if (!Array.isArray(loaded) || !loaded.length) throw new Error("No shots in " + shotsUrl());
+    const preview = selectPreviewShot(loaded);
+    if (!preview) throw new Error("11:55 AM HE BASKET Antigua brew was not in the log");
+    allShots = [preview];
+    textures[preview.id] = await loadTexture(textureUrlFor(preview.id));
   } catch (err) {
     console.error(err);
     if (hint) hint.textContent = "Could not load the bouquet. Open this page over http, not as a file.";
@@ -1326,6 +1347,15 @@ async function __main() {
   renderFrame();
   document.documentElement.dataset.ready = "1";
   updateCaption();
+  window.__previewShot = {
+    id: allShots[0] && allShots[0].id,
+    when: allShots[0] && allShots[0].when,
+    iso: allShots[0] && allShots[0].iso,
+    modifier: allShots[0] && allShots[0].modifier,
+    hue: allShots[0] && allShots[0].hue,
+    flowers: flowers.length,
+    dye: flowers[0] && flowers[0].userData.modifiers
+  };
   if (!stillMode) {
     running = true;
     t0 = performance.now();
