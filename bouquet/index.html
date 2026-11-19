@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#000000" />
-  <title>Bloom Bouquet — last 30 brews</title>
+  <title>Bloom Bouquet — November brews</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body {
@@ -128,10 +128,16 @@
       touch-action: manipulation;
     }
     #caption {
-      margin: 0 0 10px;
+      margin: 0 0 4px;
       color: #9a8b7a;
       font-size: 11px;
     }
+    #legend, #dye-counts {
+      margin: 0 0 8px;
+      color: #c4b4a4;
+      font-size: 11px;
+    }
+    #dye-counts { margin-bottom: 10px; color: #e0b48a; }
     label.ctrl {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -172,9 +178,11 @@
             <div class="title">Bloom bouquet</div>
             <button type="button" id="reset">Reset</button>
           </div>
-          <p id="caption">Last 30 brews · 9–17 Nov 2026 HKT</p>
-          <label class="ctrl">Logs <span id="val-logs">30</span>
-            <input id="logs" type="range" min="1" max="30" step="1" value="30" />
+          <p id="caption">Last 60 brews · 1–19 Nov 2026 HKT</p>
+          <p id="legend">HE BASKET purple · FROZEN BALL cyan · SLOW FEED red</p>
+          <p id="dye-counts"></p>
+          <label class="ctrl">Logs <span id="val-logs">60</span>
+            <input id="logs" type="range" min="1" max="60" step="1" value="60" />
           </label>
           <label class="ctrl">Stem height <span id="val-height">1.00</span>
             <input id="height" type="range" min="0.6" max="1.6" step="0.02" value="1" />
