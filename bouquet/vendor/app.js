@@ -23178,9 +23178,14 @@ void main() {
   var RELAX_ITERS = 2;
   var RELAX_BLEND = 0.5;
   var WEEK_TOP_HUE = 16;
-  var DATE_RANGE = "1\u201319 Nov 2026 HKT";
   var MOUTH_Y = -1.42;
   var BUNDLE = new Vector3(0, -1.58, 0);
+  var CAM_POS = new Vector3(2.85, 1.42, 6.05);
+  var CAM_TARGET = new Vector3(0, -0.12, 0);
+  var SOLO_ANGLE = -0.11;
+  var SOLO_RADIUS = 0.42;
+  var SOLO_YBASE = 0.92;
+  var SOLO_LEAN = 22 * Math.PI / 180;
   var DOSE_MIN = 14;
   var DOSE_REF = 18;
   var DOSE_XL = 22;
@@ -23197,13 +23202,11 @@ void main() {
   var ATMOS_Y = 1.2;
   var GROUND_SIZE = 12;
   var DEFAULTS = {
-    logs: 60,
     stemHeight: 1,
     stemSoftness: 1,
     sizeExag: 1
   };
   var LIMITS = {
-    logs: [1, 60],
     stemHeight: [0.6, 1.6],
     stemSoftness: [0.4, 2.2],
     sizeExag: [0.5, 2.2]
@@ -23311,6 +23314,18 @@ void main() {
       out.push(label);
     }
     return out.slice(0, 4);
+  }
+  function isHebasketPreview(shot) {
+    if (!shot || typeof shot !== "object") return false;
+    const name = String(shot.name || "").toUpperCase();
+    const when = String(shot.when || "");
+    const iso = String(shot.iso || "");
+    const at1155 = when.includes("11:55") || iso.startsWith("2026-11-19T11:55") || iso.startsWith("2026-11-19T03:55");
+    return Number(shot.bag_id) === 8 && Number(shot.hue) === 143 && name.includes("ANTIGUA LA FLOR") && at1155 && canonicalModifier(shot.modifier) === "HE BASKET";
+  }
+  function selectPreviewShot(shots) {
+    const matches = (Array.isArray(shots) ? shots : []).filter(isHebasketPreview);
+    return matches.length ? matches[matches.length - 1] : null;
   }
   var RIM_DYE_GLSL = `
 uniform float uDyeCount;
@@ -23514,7 +23529,6 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     };
     return {
       still: q.has("still"),
-      logs: Math.round(num("logs", DEFAULTS.logs, LIMITS.logs[0], LIMITS.logs[1])),
       stemHeight: num("height", DEFAULTS.stemHeight, LIMITS.stemHeight[0], LIMITS.stemHeight[1]),
       stemSoftness: num("soft", DEFAULTS.stemSoftness, LIMITS.stemSoftness[0], LIMITS.stemSoftness[1]),
       sizeExag: num("size", DEFAULTS.sizeExag, LIMITS.sizeExag[0], LIMITS.sizeExag[1])
@@ -23524,7 +23538,6 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     const weekGlow = hsvDial(WEEK_TOP_HUE, 210, 200);
     const start = readParams();
     const params = {
-      logs: start.logs,
       stemHeight: start.stemHeight,
       stemSoftness: start.stemSoftness,
       sizeExag: start.sizeExag
@@ -23535,7 +23548,7 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     const scene = new Scene();
     scene.background = new Color(0);
     const camera = new PerspectiveCamera(36, vw0 / Math.max(1, vh0), 0.1, 80);
-    camera.position.set(6.8, 2.35, 12.4);
+    camera.position.copy(CAM_POS);
     const renderer = new WebGLRenderer({ antialias: true, alpha: false });
     const coarse = window.matchMedia("(max-width: 720px), (pointer: coarse)").matches;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, coarse ? 1.75 : 2));
@@ -23549,9 +23562,9 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.target.set(0, 1.15, 0);
-    controls.minDistance = 4.5;
-    controls.maxDistance = 24;
+    controls.target.copy(CAM_TARGET);
+    controls.minDistance = 2.8;
+    controls.maxDistance = 16;
     controls.maxPolarAngle = Math.PI * 0.49;
     scene.add(new AmbientLight(10130832, 0.28));
     const key = new DirectionalLight("#d8d4ce", 0.42);
@@ -23588,12 +23601,12 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     const renderSceneFinal = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(
       new Vector2(vw0, vh0),
-      1.1,
-      // strength — a clear colored halo on every head
-      0.72,
+      0.48,
+      // strength — halo stays colored so the dyed rim is still visible
+      0.42,
       // radius
-      0.05
-      // threshold — low enough that blue and rust petals bloom too
+      0.18
+      // threshold — the bright rim blooms; the center keeps its bag hue
     );
     const bloomComposer = new EffectComposer(renderer);
     bloomComposer.renderToScreen = false;
@@ -23930,7 +23943,7 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
         map: auraTex,
         color: col,
         transparent: true,
-        opacity: 0.28,
+        opacity: 0.12,
         blending: AdditiveBlending,
         depthWrite: false
       });
@@ -23954,12 +23967,13 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     function computePlacements(shots) {
       const n = shots.length;
       return shots.map((s, i) => {
-        const t = (i + 0.5) / n;
-        const angle = i * GOLDEN;
-        const radius = 0.28 + 2.35 * Math.sqrt(t);
-        const yBase = 2.55 + 1.85 * (1 - Math.sqrt(t)) + (s.stars - 3.5) * 0.12 + 0.16 * Math.sin(i * 2.15 + 0.4);
+        const solo = n === 1;
+        const t = solo ? 0 : (i + 0.5) / n;
+        const angle = solo ? SOLO_ANGLE : i * GOLDEN;
+        const radius = solo ? SOLO_RADIUS : 0.28 + 2.35 * Math.sqrt(t);
+        const yBase = solo ? SOLO_YBASE : 2.55 + 1.85 * (1 - Math.sqrt(t)) + (s.stars - 3.5) * 0.12 + 0.16 * Math.sin(i * 2.15 + 0.4);
         const y = MOUTH_Y + (yBase - MOUTH_Y) * params.stemHeight;
-        const lean = LEAN_INNER + (LEAN_OUTER - LEAN_INNER) * Math.min(1, radius / 2.63);
+        const lean = solo ? SOLO_LEAN : LEAN_INNER + (LEAN_OUTER - LEAN_INNER) * Math.min(1, radius / 2.63);
         const scale = sizedScale(s.dose, params.sizeExag);
         const open = grindOpenness(s.grind);
         const pull = (1.04 + 0.12 * Math.sin(i * 1.7 + 0.3)) * (1 - 0.94 * open);
@@ -24041,7 +24055,9 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     }
     function rebuildFlowers(shots, textures2) {
       clearFlowers();
-      const placements = computePlacements(shots);
+      const only = (shots || []).filter(isHebasketPreview);
+      if (only.length !== 1) return;
+      const placements = computePlacements(only);
       for (const p of placements) addFlowerFromPlacement(p, textures2);
     }
     function softnessAmt() {
@@ -24170,14 +24186,12 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     let allShots = [];
     const textures = {};
     function visibleShots() {
-      const n = clamp2(Math.round(params.logs), 1, allShots.length || 30);
-      return allShots.slice(-n);
+      return allShots.filter(isHebasketPreview);
     }
     function captionText() {
-      const n = clamp2(Math.round(params.logs), 1, allShots.length || 60);
-      const total = allShots.length || 60;
-      if (n >= total) return "Last " + total + " brews \xB7 " + DATE_RANGE;
-      return "Latest " + n + " of " + total + " brews \xB7 " + DATE_RANGE;
+      const shot = visibleShots()[0];
+      const when = shot && shot.when || "19 Nov 2026, 11:55 AM HKT";
+      return { when, brew: "Guatemala Antigua La Flor \xB7 HE BASKET" };
     }
     function dyeCountText(shots) {
       const order = ["HE BASKET", "FROZEN BALL", "SLOW FEED"];
@@ -24192,6 +24206,9 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
         if (!labels.includes(label)) labels.push(label);
       }
       if (!labels.length) return "No rim dye in this view";
+      if (shots.length === 1 && labels.length === 1 && labels[0] === "HE BASKET") {
+        return "Rim dye \xB7 HE BASKET purple";
+      }
       return labels.map((label) => label + " \xD7 " + counts.get(label)).join(" \xB7 ");
     }
     function updateCaption() {
@@ -24199,8 +24216,12 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
       const hint2 = document.getElementById("hint");
       const counts = document.getElementById("dye-counts");
       const text = captionText();
-      if (el) el.textContent = text;
-      if (hint2) hint2.textContent = text + " \xB7 drag to look around";
+      const whenEl = document.getElementById("caption-when");
+      const brewEl = document.getElementById("caption-brew");
+      if (whenEl) whenEl.textContent = text.when;
+      if (brewEl) brewEl.textContent = text.brew;
+      if (el && !whenEl) el.textContent = text.when + " \xB7 " + text.brew;
+      if (hint2) hint2.textContent = text.brew + " \xB7 drag to look around";
       if (counts) counts.textContent = dyeCountText(visibleShots());
     }
     let hashTimer = 0;
@@ -24208,7 +24229,6 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
       clearTimeout(hashTimer);
       hashTimer = setTimeout(() => {
         const parts = [
-          "logs=" + Math.round(params.logs),
           "height=" + Number(params.stemHeight).toFixed(2),
           "soft=" + Number(params.stemSoftness).toFixed(2),
           "size=" + Number(params.sizeExag).toFixed(2)
@@ -24228,29 +24248,10 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
           label.textContent = digits == null ? String(Math.round(value)) : Number(value).toFixed(digits);
         }
       };
-      set("logs", params.logs);
       set("height", params.stemHeight, 2);
       set("soft", params.stemSoftness, 2);
       set("size", params.sizeExag, 2);
       updateCaption();
-    }
-    let logsTimer = 0;
-    function onLogsChange(n, immediate) {
-      params.logs = clamp2(Math.round(n), LIMITS.logs[0], Math.min(LIMITS.logs[1], allShots.length || 30));
-      syncSlidersFromParams();
-      writeHash();
-      const run = () => rebuildFlowers(visibleShots(), textures);
-      if (immediate) {
-        clearTimeout(logsTimer);
-        run();
-        paint();
-        return;
-      }
-      clearTimeout(logsTimer);
-      logsTimer = setTimeout(() => {
-        run();
-        paint();
-      }, 80);
     }
     function onHeightChange(v) {
       params.stemHeight = clamp2(v, LIMITS.stemHeight[0], LIMITS.stemHeight[1]);
@@ -24274,7 +24275,6 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
       paint();
     }
     function resetParams() {
-      params.logs = DEFAULTS.logs;
       params.stemHeight = DEFAULTS.stemHeight;
       params.stemSoftness = DEFAULTS.stemSoftness;
       params.sizeExag = DEFAULTS.sizeExag;
@@ -24286,7 +24286,6 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     function bindUi() {
       const panel = document.getElementById("panel");
       const toggle = document.getElementById("toggle");
-      const logs = document.getElementById("logs");
       const height = document.getElementById("height");
       const soft = document.getElementById("soft");
       const size = document.getElementById("size");
@@ -24297,7 +24296,6 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
         input.addEventListener("input", read);
         input.addEventListener("change", read);
       };
-      live(logs, (v) => onLogsChange(v, false), true);
       live(height, onHeightChange, false);
       live(soft, onSoftChange, false);
       live(size, onSizeChange, false);
@@ -24381,11 +24379,12 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     try {
       const res = await fetch(shotsUrl());
       if (!res.ok) throw new Error("Could not load " + shotsUrl() + " (" + res.status + ")");
-      allShots = await res.json();
-      if (!Array.isArray(allShots) || !allShots.length) throw new Error("No shots in " + shotsUrl());
-      await Promise.all(allShots.map(async (s) => {
-        textures[s.id] = await loadTexture(textureUrlFor(s.id));
-      }));
+      const loaded = await res.json();
+      if (!Array.isArray(loaded) || !loaded.length) throw new Error("No shots in " + shotsUrl());
+      const preview = selectPreviewShot(loaded);
+      if (!preview) throw new Error("11:55 AM HE BASKET Antigua brew was not in the log");
+      allShots = [preview];
+      textures[preview.id] = await loadTexture(textureUrlFor(preview.id));
     } catch (err) {
       console.error(err);
       if (hint) hint.textContent = "Could not load the bouquet. Open this page over http, not as a file.";
@@ -24400,6 +24399,15 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     renderFrame();
     document.documentElement.dataset.ready = "1";
     updateCaption();
+    window.__previewShot = {
+      id: allShots[0] && allShots[0].id,
+      when: allShots[0] && allShots[0].when,
+      iso: allShots[0] && allShots[0].iso,
+      modifier: allShots[0] && allShots[0].modifier,
+      hue: allShots[0] && allShots[0].hue,
+      flowers: flowers.length,
+      dye: flowers[0] && flowers[0].userData.modifiers
+    };
     if (!stillMode) {
       running = true;
       t0 = performance.now();
