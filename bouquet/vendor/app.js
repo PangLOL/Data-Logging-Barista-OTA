@@ -23427,10 +23427,20 @@ float bouquetModifierHue(vec2 uv) {
   return h0;
 }
 
+// d is UV distance from the petal center: 0 at the center, 0.5 at the outer
+// ring. RingGeometry sets uv = (position / outerRadius + 1) / 2, so
+// d = geometricRadius / 2 (geometricRadius is 0 at the center and 1 at the edge).
+// r is that span from the inner hole (d = 0.05, radius 0.10) to the edge
+// (d = 0.50, radius 1).
+// Previously smoothstep(0.30, 0.98, r) started at radius 0.37 and dyed the
+// whole outer petal. The rim is the outer half of the span (r >= 0.5,
+// radius >= 0.55). Dye only its outer half: no tint inboard of r = 0.75
+// (radius 0.775), then a smoothstep up to the modifier hue by r = 0.92
+// (radius 0.928), held out to the edge.
 float bouquetRadial(vec2 uv) {
   float d = length(uv - vec2(0.5));
   float r = clamp((d - 0.05) / 0.45, 0.0, 1.0);
-  return smoothstep(0.30, 0.98, r);
+  return smoothstep(0.75, 0.92, r);
 }
 
 vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
@@ -23468,7 +23478,7 @@ vec3 bouquetRimDye(vec3 linearRgb, vec2 uv) {
     mat.userData.dyeLabels = used;
     mat.userData.dyeHues = new Vector4(hues[0], hues[1], hues[2], hues[3]);
     mat.onBeforeCompile = onBeforeCompileRim;
-    mat.customProgramCacheKey = () => "bouquet-rim-dye-v1";
+    mat.customProgramCacheKey = () => "bouquet-rim-dye-v2";
   }
   function hermite(y0, y1, m0, m1, t) {
     const t2 = t * t, t3 = t2 * t;
